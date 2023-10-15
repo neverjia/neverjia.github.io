@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en" dir="auto">
+
+<head><meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="robots" content="index, follow">
+<title>搭建OpenStack | MiJia&#39;s Blog</title>
+<meta name="keywords" content="">
+<meta name="description" content="&#43;&#43;&#43; title = &lsquo;搭建OpenStack&rsquo; date = 2023-10-03T21:15:18&#43;08:00 draft = false &#43;&#43;&#43; 环境搭建（在线源安装） Openstack环境搭建有很多种方法： 1.手工搭建，一个组件一个组件去安装。 2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。 3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。 1.关闭防火墙selinux和networkmanager 控制节点和计算节点都要做 [root@controller ~]# systemctl stop firewalld [root@controller ~]# systemctl disable firewalld [root@controller ~]# setenforce 0 [root@controller ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config [root@controller ~]# systemctl stop NetworkManager [root@controller ~]# systemctl disable NetworkManager [root@compute ~]# systemctl stop firewalld [root@compute ~]# systemctl disable firewalld [root@compute ~]# setenforce 0 [root@compute ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config [root@compute ~]# systemctl stop NetworkManager [root@compute ~]# systemctl disable NetworkManager 配置ip及主机名安装基础包 控制节点和计算节点都要配置 [root@compute network-scripts]# cat ifcfg-ens160 TYPE=Ethernet BOOTPROTO=none NAME=ens160 DEVICE=ens160 ONBOOT=yes IPADDR=192.168.230.139 NETMASK=255.255.255.0 GATEWAY=192.168.230.2 DNS1=192.168.230.2 [root@compute network-scripts]# 配置域名解析 在本地将域名指向自己想要解析的IP 当我们访问域名的时候 默认第一步就会先看本地的hosts文件 没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的） [root@controller ~]# vi /etc/hosts 添加下面两行 192.168.230.138 controller 192.168.230.139 compute 发送给计算节点 scp /etc/hosts root@192.168.230.139:/etc/hosts 配置ntp时钟 控制节点和计算节点都要配置 yum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch [root@controller ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst [root@compute ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst 启动服务 [root@controller ~]# systemctl start chronyd.service [root@controller ~]# systemctl enable chronyd.service [root@compute ~]# systemctl start chronyd.service [root@compute ~]# systemctl enable chronyd.service 配置yum源 控制节点和计算节点都要配置 [root@controller ~]# mkdir /etc/yum.repos.d/bak [root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/ [root@controller ~]# ls /etc/yum.repos.d/ bak [root@controller yum.repos.d]# cat cloudcs.repo [highavailability] name=CentOS Stream 8 - HighAvailability baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [nfv] name=CentOS Stream 8 - NFV baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [rt] name=CentOS Stream 8 - RT baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [resilientstorage] name=CentOS Stream 8 - ResilientStorage baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras-common] name=CentOS Stream 8 - Extras packages baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512 gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras] name=CentOS Stream - Extras mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=extras&amp;infra= \#baseurl=http://mirror.centos.org///extras//os/ baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial [centos-ceph-pacific] name=CentOS - Ceph Pacific baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/ gpgcheck=0 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage [centos-rabbitmq-38] name=CentOS-8 - RabbitMQ 38 baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging [centos-nfv-openvswitch] name=CentOS Stream 8 - NFV OpenvSwitch baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV module_hotfixes=1 [baseos] name=CentOS Stream 8 - BaseOS baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [appstream] name=CentOS Stream 8 - AppStream baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [centos-openstack-victoria] name=CentOS 8 - OpenStack victoria baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/ \#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud module_hotfixes=1 [powertools] name=CentOS Stream 8 - PowerTools \#mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=PowerTools&amp;infra= baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial 将控制节点的repo文件拷贝过来到计算节点 [root@compute yum.repos.d]# mkdir bak [root@compute yum.repos.d]# mv *.repo bak/ [root@compute yum.repos.d]# ls bak [root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo . [root@compute yum.repos.d]# ls bak">
+<meta name="author" content="">
+<link rel="canonical" href="https://neverjia.github.io/posts/title_of_the_post/">
+<link crossorigin="anonymous" href="/assets/css/stylesheet.css" rel="preload stylesheet" as="style">
+<script defer crossorigin="anonymous" src="/assets/js/highlight.js" onload="hljs.initHighlightingOnLoad();"></script>
+<link rel="icon" href="https://neverjia.github.io/img/favicon.png">
+<link rel="icon" type="image/png" sizes="16x16" href="https://neverjia.github.io/img/favicon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="https://neverjia.github.io/img/favicon.png">
+<link rel="apple-touch-icon" href="https://neverjia.github.io/img/favicon.png">
+<link rel="mask-icon" href="https://neverjia.github.io/img/favicon.png">
+<meta name="theme-color" content="#2e2e33">
+<meta name="msapplication-TileColor" content="#2e2e33">
+<noscript>
+    <style>
+        #theme-toggle,
+        .top-link {
+            display: none;
+        }
+
+    </style>
+    <style>
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --theme: rgb(29, 30, 32);
+                --entry: rgb(46, 46, 51);
+                --primary: rgb(218, 218, 219);
+                --secondary: rgb(155, 156, 157);
+                --tertiary: rgb(65, 66, 68);
+                --content: rgb(196, 196, 197);
+                --hljs-bg: rgb(46, 46, 51);
+                --code-bg: rgb(55, 56, 62);
+                --border: rgb(51, 51, 51);
+            }
+
+            .list {
+                background: var(--theme);
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-track {
+                background: 0 0;
+            }
+
+            .list:not(.dark)::-webkit-scrollbar-thumb {
+                border-color: var(--theme);
+            }
+        }
+
+    </style>
+</noscript><meta property="og:title" content="搭建OpenStack" />
+<meta property="og:description" content="&#43;&#43;&#43; title = &lsquo;搭建OpenStack&rsquo; date = 2023-10-03T21:15:18&#43;08:00 draft = false &#43;&#43;&#43; 环境搭建（在线源安装） Openstack环境搭建有很多种方法： 1.手工搭建，一个组件一个组件去安装。 2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。 3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。 1.关闭防火墙selinux和networkmanager 控制节点和计算节点都要做 [root@controller ~]# systemctl stop firewalld [root@controller ~]# systemctl disable firewalld [root@controller ~]# setenforce 0 [root@controller ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config [root@controller ~]# systemctl stop NetworkManager [root@controller ~]# systemctl disable NetworkManager [root@compute ~]# systemctl stop firewalld [root@compute ~]# systemctl disable firewalld [root@compute ~]# setenforce 0 [root@compute ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config [root@compute ~]# systemctl stop NetworkManager [root@compute ~]# systemctl disable NetworkManager 配置ip及主机名安装基础包 控制节点和计算节点都要配置 [root@compute network-scripts]# cat ifcfg-ens160 TYPE=Ethernet BOOTPROTO=none NAME=ens160 DEVICE=ens160 ONBOOT=yes IPADDR=192.168.230.139 NETMASK=255.255.255.0 GATEWAY=192.168.230.2 DNS1=192.168.230.2 [root@compute network-scripts]# 配置域名解析 在本地将域名指向自己想要解析的IP 当我们访问域名的时候 默认第一步就会先看本地的hosts文件 没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的） [root@controller ~]# vi /etc/hosts 添加下面两行 192.168.230.138 controller 192.168.230.139 compute 发送给计算节点 scp /etc/hosts root@192.168.230.139:/etc/hosts 配置ntp时钟 控制节点和计算节点都要配置 yum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch [root@controller ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst [root@compute ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst 启动服务 [root@controller ~]# systemctl start chronyd.service [root@controller ~]# systemctl enable chronyd.service [root@compute ~]# systemctl start chronyd.service [root@compute ~]# systemctl enable chronyd.service 配置yum源 控制节点和计算节点都要配置 [root@controller ~]# mkdir /etc/yum.repos.d/bak [root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/ [root@controller ~]# ls /etc/yum.repos.d/ bak [root@controller yum.repos.d]# cat cloudcs.repo [highavailability] name=CentOS Stream 8 - HighAvailability baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [nfv] name=CentOS Stream 8 - NFV baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [rt] name=CentOS Stream 8 - RT baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [resilientstorage] name=CentOS Stream 8 - ResilientStorage baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras-common] name=CentOS Stream 8 - Extras packages baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512 gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras] name=CentOS Stream - Extras mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=extras&amp;infra= \#baseurl=http://mirror.centos.org///extras//os/ baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial [centos-ceph-pacific] name=CentOS - Ceph Pacific baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/ gpgcheck=0 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage [centos-rabbitmq-38] name=CentOS-8 - RabbitMQ 38 baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging [centos-nfv-openvswitch] name=CentOS Stream 8 - NFV OpenvSwitch baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV module_hotfixes=1 [baseos] name=CentOS Stream 8 - BaseOS baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [appstream] name=CentOS Stream 8 - AppStream baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [centos-openstack-victoria] name=CentOS 8 - OpenStack victoria baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/ \#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud module_hotfixes=1 [powertools] name=CentOS Stream 8 - PowerTools \#mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=PowerTools&amp;infra= baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial 将控制节点的repo文件拷贝过来到计算节点 [root@compute yum.repos.d]# mkdir bak [root@compute yum.repos.d]# mv *.repo bak/ [root@compute yum.repos.d]# ls bak [root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo . [root@compute yum.repos.d]# ls bak" />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="https://neverjia.github.io/posts/title_of_the_post/" /><meta property="article:section" content="posts" />
+<meta property="article:published_time" content="2023-10-08T09:17:06+08:00" />
+<meta property="article:modified_time" content="2023-10-08T09:17:06+08:00" />
+
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="搭建OpenStack"/>
+<meta name="twitter:description" content="&#43;&#43;&#43; title = &lsquo;搭建OpenStack&rsquo; date = 2023-10-03T21:15:18&#43;08:00 draft = false &#43;&#43;&#43; 环境搭建（在线源安装） Openstack环境搭建有很多种方法： 1.手工搭建，一个组件一个组件去安装。 2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。 3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。 1.关闭防火墙selinux和networkmanager 控制节点和计算节点都要做 [root@controller ~]# systemctl stop firewalld [root@controller ~]# systemctl disable firewalld [root@controller ~]# setenforce 0 [root@controller ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config [root@controller ~]# systemctl stop NetworkManager [root@controller ~]# systemctl disable NetworkManager [root@compute ~]# systemctl stop firewalld [root@compute ~]# systemctl disable firewalld [root@compute ~]# setenforce 0 [root@compute ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config [root@compute ~]# systemctl stop NetworkManager [root@compute ~]# systemctl disable NetworkManager 配置ip及主机名安装基础包 控制节点和计算节点都要配置 [root@compute network-scripts]# cat ifcfg-ens160 TYPE=Ethernet BOOTPROTO=none NAME=ens160 DEVICE=ens160 ONBOOT=yes IPADDR=192.168.230.139 NETMASK=255.255.255.0 GATEWAY=192.168.230.2 DNS1=192.168.230.2 [root@compute network-scripts]# 配置域名解析 在本地将域名指向自己想要解析的IP 当我们访问域名的时候 默认第一步就会先看本地的hosts文件 没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的） [root@controller ~]# vi /etc/hosts 添加下面两行 192.168.230.138 controller 192.168.230.139 compute 发送给计算节点 scp /etc/hosts root@192.168.230.139:/etc/hosts 配置ntp时钟 控制节点和计算节点都要配置 yum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch [root@controller ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst [root@compute ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst 启动服务 [root@controller ~]# systemctl start chronyd.service [root@controller ~]# systemctl enable chronyd.service [root@compute ~]# systemctl start chronyd.service [root@compute ~]# systemctl enable chronyd.service 配置yum源 控制节点和计算节点都要配置 [root@controller ~]# mkdir /etc/yum.repos.d/bak [root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/ [root@controller ~]# ls /etc/yum.repos.d/ bak [root@controller yum.repos.d]# cat cloudcs.repo [highavailability] name=CentOS Stream 8 - HighAvailability baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [nfv] name=CentOS Stream 8 - NFV baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [rt] name=CentOS Stream 8 - RT baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [resilientstorage] name=CentOS Stream 8 - ResilientStorage baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras-common] name=CentOS Stream 8 - Extras packages baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512 gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras] name=CentOS Stream - Extras mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=extras&amp;infra= \#baseurl=http://mirror.centos.org///extras//os/ baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial [centos-ceph-pacific] name=CentOS - Ceph Pacific baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/ gpgcheck=0 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage [centos-rabbitmq-38] name=CentOS-8 - RabbitMQ 38 baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging [centos-nfv-openvswitch] name=CentOS Stream 8 - NFV OpenvSwitch baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV module_hotfixes=1 [baseos] name=CentOS Stream 8 - BaseOS baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [appstream] name=CentOS Stream 8 - AppStream baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [centos-openstack-victoria] name=CentOS 8 - OpenStack victoria baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/ \#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud module_hotfixes=1 [powertools] name=CentOS Stream 8 - PowerTools \#mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=PowerTools&amp;infra= baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial 将控制节点的repo文件拷贝过来到计算节点 [root@compute yum.repos.d]# mkdir bak [root@compute yum.repos.d]# mv *.repo bak/ [root@compute yum.repos.d]# ls bak [root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo . [root@compute yum.repos.d]# ls bak"/>
+
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position":  1 ,
+      "name": "Posts",
+      "item": "https://neverjia.github.io/posts/"
+    }, 
+    {
+      "@type": "ListItem",
+      "position":  2 ,
+      "name": "搭建OpenStack",
+      "item": "https://neverjia.github.io/posts/title_of_the_post/"
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "搭建OpenStack",
+  "name": "搭建OpenStack",
+  "description": "+++ title = \u0026lsquo;搭建OpenStack\u0026rsquo; date = 2023-10-03T21:15:18+08:00 draft = false +++ 环境搭建（在线源安装） Openstack环境搭建有很多种方法： 1.手工搭建，一个组件一个组件去安装。 2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。 3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。 1.关闭防火墙selinux和networkmanager 控制节点和计算节点都要做 [root@controller ~]# systemctl stop firewalld [root@controller ~]# systemctl disable firewalld [root@controller ~]# setenforce 0 [root@controller ~]# sed -i \u0026#39;s/SELINUX=enforcing/SELINUX=disabled/g\u0026#39; /etc/selinux/config [root@controller ~]# systemctl stop NetworkManager [root@controller ~]# systemctl disable NetworkManager [root@compute ~]# systemctl stop firewalld [root@compute ~]# systemctl disable firewalld [root@compute ~]# setenforce 0 [root@compute ~]# sed -i \u0026#39;s/SELINUX=enforcing/SELINUX=disabled/g\u0026#39; /etc/selinux/config [root@compute ~]# systemctl stop NetworkManager [root@compute ~]# systemctl disable NetworkManager 配置ip及主机名安装基础包 控制节点和计算节点都要配置 [root@compute network-scripts]# cat ifcfg-ens160 TYPE=Ethernet BOOTPROTO=none NAME=ens160 DEVICE=ens160 ONBOOT=yes IPADDR=192.168.230.139 NETMASK=255.255.255.0 GATEWAY=192.168.230.2 DNS1=192.168.230.2 [root@compute network-scripts]# 配置域名解析 在本地将域名指向自己想要解析的IP 当我们访问域名的时候 默认第一步就会先看本地的hosts文件 没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的） [root@controller ~]# vi /etc/hosts 添加下面两行 192.168.230.138 controller 192.168.230.139 compute 发送给计算节点 scp /etc/hosts root@192.168.230.139:/etc/hosts 配置ntp时钟 控制节点和计算节点都要配置 yum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch [root@controller ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst [root@compute ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst 启动服务 [root@controller ~]# systemctl start chronyd.service [root@controller ~]# systemctl enable chronyd.service [root@compute ~]# systemctl start chronyd.service [root@compute ~]# systemctl enable chronyd.service 配置yum源 控制节点和计算节点都要配置 [root@controller ~]# mkdir /etc/yum.repos.d/bak [root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/ [root@controller ~]# ls /etc/yum.repos.d/ bak [root@controller yum.repos.d]# cat cloudcs.repo [highavailability] name=CentOS Stream 8 - HighAvailability baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [nfv] name=CentOS Stream 8 - NFV baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [rt] name=CentOS Stream 8 - RT baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [resilientstorage] name=CentOS Stream 8 - ResilientStorage baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras-common] name=CentOS Stream 8 - Extras packages baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512 gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras] name=CentOS Stream - Extras mirrorlist=http://mirrorlist.centos.org/?release=\u0026amp;arch=\u0026amp;repo=extras\u0026amp;infra= \\#baseurl=http://mirror.centos.org///extras//os/ baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial [centos-ceph-pacific] name=CentOS - Ceph Pacific baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/ gpgcheck=0 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage [centos-rabbitmq-38] name=CentOS-8 - RabbitMQ 38 baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging [centos-nfv-openvswitch] name=CentOS Stream 8 - NFV OpenvSwitch baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV module_hotfixes=1 [baseos] name=CentOS Stream 8 - BaseOS baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [appstream] name=CentOS Stream 8 - AppStream baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [centos-openstack-victoria] name=CentOS 8 - OpenStack victoria baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/ \\#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud module_hotfixes=1 [powertools] name=CentOS Stream 8 - PowerTools \\#mirrorlist=http://mirrorlist.centos.org/?release=\u0026amp;arch=\u0026amp;repo=PowerTools\u0026amp;infra= baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial 将控制节点的repo文件拷贝过来到计算节点 [root@compute yum.repos.d]# mkdir bak [root@compute yum.repos.d]# mv *.repo bak/ [root@compute yum.repos.d]# ls bak [root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo . [root@compute yum.repos.d]# ls bak",
+  "keywords": [
+    
+  ],
+  "articleBody": "+++ title = ‘搭建OpenStack’ date = 2023-10-03T21:15:18+08:00 draft = false +++\n环境搭建（在线源安装） Openstack环境搭建有很多种方法：\n1.手工搭建，一个组件一个组件去安装。\n2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。\n3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。\n1.关闭防火墙selinux和networkmanager 控制节点和计算节点都要做\n[root@controller ~]# systemctl stop firewalld [root@controller ~]# systemctl disable firewalld [root@controller ~]# setenforce 0 [root@controller ~]# sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config [root@controller ~]# systemctl stop NetworkManager [root@controller ~]# systemctl disable NetworkManager [root@compute ~]# systemctl stop firewalld [root@compute ~]# systemctl disable firewalld [root@compute ~]# setenforce 0 [root@compute ~]# sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config [root@compute ~]# systemctl stop NetworkManager [root@compute ~]# systemctl disable NetworkManager 配置ip及主机名安装基础包 控制节点和计算节点都要配置\n[root@compute network-scripts]# cat ifcfg-ens160 TYPE=Ethernet BOOTPROTO=none NAME=ens160 DEVICE=ens160 ONBOOT=yes IPADDR=192.168.230.139 NETMASK=255.255.255.0 GATEWAY=192.168.230.2 DNS1=192.168.230.2 [root@compute network-scripts]# 配置域名解析\n在本地将域名指向自己想要解析的IP 当我们访问域名的时候 默认第一步就会先看本地的hosts文件 没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的） [root@controller ~]# vi /etc/hosts\n添加下面两行\n192.168.230.138 controller 192.168.230.139 compute 发送给计算节点\nscp /etc/hosts root@192.168.230.139:/etc/hosts 配置ntp时钟 控制节点和计算节点都要配置\nyum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch\n[root@controller ~]# vim /etc/chrony.conf\n# pool 2.centos.pool.ntp.org iburst\npool ntp.aliyun.com iburst\n[root@compute ~]# vim /etc/chrony.conf\n# pool 2.centos.pool.ntp.org iburst\npool ntp.aliyun.com iburst\n启动服务\n[root@controller ~]# systemctl start chronyd.service\n[root@controller ~]# systemctl enable chronyd.service\n[root@compute ~]# systemctl start chronyd.service\n[root@compute ~]# systemctl enable chronyd.service\n配置yum源 控制节点和计算节点都要配置\n[root@controller ~]# mkdir /etc/yum.repos.d/bak\n[root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/\n[root@controller ~]# ls /etc/yum.repos.d/\nbak\n[root@controller yum.repos.d]# cat cloudcs.repo\n[highavailability] name=CentOS Stream 8 - HighAvailability baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [nfv] name=CentOS Stream 8 - NFV baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [rt] name=CentOS Stream 8 - RT baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [resilientstorage] name=CentOS Stream 8 - ResilientStorage baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras-common] name=CentOS Stream 8 - Extras packages baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512 gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras] name=CentOS Stream - Extras mirrorlist=http://mirrorlist.centos.org/?release=\u0026arch=\u0026repo=extras\u0026infra= \\#baseurl=http://mirror.centos.org///extras//os/ baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial [centos-ceph-pacific] name=CentOS - Ceph Pacific baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/ gpgcheck=0 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage [centos-rabbitmq-38] name=CentOS-8 - RabbitMQ 38 baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging [centos-nfv-openvswitch] name=CentOS Stream 8 - NFV OpenvSwitch baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV module_hotfixes=1 [baseos] name=CentOS Stream 8 - BaseOS baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [appstream] name=CentOS Stream 8 - AppStream baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [centos-openstack-victoria] name=CentOS 8 - OpenStack victoria baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/ \\#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud module_hotfixes=1 [powertools] name=CentOS Stream 8 - PowerTools \\#mirrorlist=http://mirrorlist.centos.org/?release=\u0026arch=\u0026repo=PowerTools\u0026infra= baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial 将控制节点的repo文件拷贝过来到计算节点\n[root@compute yum.repos.d]# mkdir bak\n[root@compute yum.repos.d]# mv *.repo bak/\n[root@compute yum.repos.d]# ls\nbak\n[root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo .\n[root@compute yum.repos.d]# ls\nbak cloudcs.repo\n[root@compute yum.repos.d]# yum clean all\n27 files removed\n[root@compute yum.repos.d]# yum repolist all\n安装并配置packstack 仅在控制节点上做。\n安装packstack工具\n[root@controller ~]# yum install -y openstack-packstack\n生成应答文件\n[root@controller ~]# packstack –help |grep ans\n–gen-answer-file=GEN_ANSWER_FILE\n​ Generate a template of an answer file.\n–validate-answer-file=VALIDATE_ANSWER_FILE\n​ Check if answerfile contains unexpected options.\n–answer-file=ANSWER_FILE\n​ answerfile will also be generated and should be used\n-o, –options Print details on options available in answer file(rst\n​ Packstack a second time with the same answer file and\n​ attribute where “y” means an account is disabled.\n–manila-netapp-transport-type=MANILA_NETAPP_TRANSPORT_TYPE\n​ The transport protocol used when communicating with\n[root@controller ~]#\n[root@controller ~]#\n[root@controller ~]# packstack –gen-answer-file=memeda.txt\n[root@controller ~]# ls\nanaconda-ks.cfg memeda.txt\n编辑应答文件\n[root@controller ~]# vim memeda.txt\n#修改以下参数内容\nCONFIG_COMPUTE_HOSTS=192.168.230.138,192.168.230.139\nCONFIG_KEYSTONE_ADMIN_PW=redhat\nCONFIG_PROVISION_DEMO=n\nCONFIG_HEAT_INSTALL=y\nCONFIG_NEUTRON_OVN_BRIDGE_IFACES=br-ex:ens160\n*需要注意的是 br-ex 后面对应的物理网卡名称*\n安装openstack packstack –answer-file=memeda.txt（等大约十几分钟）\nadmin\n密码\nApplying Puppet manifests [ DONE ] Finalizing [ DONE ] **** Installation completed successfully ****** Additional information: * Parameter CONFIG_NEUTRON_L2_AGENT: You have chosen OVN Neutron backend. Note that this backend does not support the VPNaaS plugin. Geneve will be used as the encapsulation method for tenant networks * Time synchronization installation was skipped. Please note that unsynchronized time on server instances might be problem for some OpenStack components. * File /root/keystonerc_admin has been created on OpenStack client host 192.168.230.138. To use the command line tools you need to source the file. * To access the OpenStack Dashboard browse to http://192.168.230.138/dashboard . Please, find your login credentials stored in the keystonerc_admin in your home directory. * The installation log file is available at: /var/tmp/packstack/20231007-150224-_3m58aw_/openstack-setup.log * The generated manifests are available at: /var/tmp/packstack/20231007-150224-_3m58aw_/manifests [root@controller ~]# ",
+  "wordCount" : "1178",
+  "inLanguage": "en",
+  "datePublished": "2023-10-08T09:17:06+08:00",
+  "dateModified": "2023-10-08T09:17:06+08:00",
+  "mainEntityOfPage": {
+    "@type": "WebPage",
+    "@id": "https://neverjia.github.io/posts/title_of_the_post/"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "MiJia's Blog",
+    "logo": {
+      "@type": "ImageObject",
+      "url": "https://neverjia.github.io/img/favicon.png"
+    }
+  }
+}
+</script>
+</head>
+
+<body class="" id="top">
+<script>
+    if (localStorage.getItem("pref-theme") === "dark") {
+        document.body.classList.add('dark');
+    } else if (localStorage.getItem("pref-theme") === "light") {
+        document.body.classList.remove('dark')
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark');
+    }
+
+</script>
+
+<header class="header">
+    <nav class="nav">
+        <div class="logo">
+            <a href="https://neverjia.github.io/" accesskey="h" title="MiJia&#39;s Blog (Alt + H)">MiJia&#39;s Blog</a>
+            <div class="logo-switches">
+                <button id="theme-toggle" accesskey="t" title="(Alt + T)">
+                    <svg id="moon" xmlns="http://www.w3.org/2000/svg" width="24" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun" xmlns="http://www.w3.org/2000/svg" width="24" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <ul id="menu">
+            <li>
+                <a href="https://neverjia.github.io/posts/" title="Post">
+                    <span>Post</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://neverjia.github.io/tags" title="Tags">
+                    <span>Tags</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://neverjia.github.io/archives/" title="Archives">
+                    <span>Archives</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://neverjia.github.io/search" title="Search (Alt &#43; /)" accesskey=/>
+                    <span>Search</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://neverjia.github.io/friend" title="Friend">
+                    <span>Friend</span>
+                </a>
+            </li>
+            <li>
+                <a href="https://neverjia.github.io/about" title="About">
+                    <span>About</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+</header>
+<main class="main">
+
+<article class="post-single">
+  <header class="post-header">
+    
+    <h1 class="post-title">
+      搭建OpenStack
+    </h1>
+    <div class="post-meta"><span title='2023-10-08 09:17:06 +0800 CST'>8089-100-08</span>&nbsp;·&nbsp;3 min&nbsp;|&nbsp;<a href="https://github.com/neverjia/neverjia.github.io/tree/main/content/posts/%e6%90%ad%e5%bb%baOpenStack.md" rel="noopener noreferrer" target="_blank">Edit</a>
+
+</div>
+  </header> <div class="toc">
+    <details  open>
+        <summary accesskey="c" title="(Alt + C)">
+            <span class="details">Table of Contents</span>
+        </summary>
+
+        <div class="inner"><ul>
+                <li>
+                    <a href="#%e7%8e%af%e5%a2%83%e6%90%ad%e5%bb%ba%e5%9c%a8%e7%ba%bf%e6%ba%90%e5%ae%89%e8%a3%85" aria-label="环境搭建（在线源安装）">环境搭建（在线源安装）</a></li>
+                <li>
+                    <a href="#1%e5%85%b3%e9%97%ad%e9%98%b2%e7%81%ab%e5%a2%99selinux%e5%92%8cnetworkmanager" aria-label="1.关闭防火墙selinux和networkmanager">1.关闭防火墙selinux和networkmanager</a><ul>
+                        <ul>
+                        
+                <li>
+                    <a href="#%e9%85%8d%e7%bd%aeip%e5%8f%8a%e4%b8%bb%e6%9c%ba%e5%90%8d%e5%ae%89%e8%a3%85%e5%9f%ba%e7%a1%80%e5%8c%85" aria-label="配置ip及主机名安装基础包"><strong>配置ip及主机名安装基础包</strong></a></li>
+                <li>
+                    <a href="#%e9%85%8d%e7%bd%aentp%e6%97%b6%e9%92%9f" aria-label="配置ntp时钟"><strong>配置ntp时钟</strong></a></li>
+                <li>
+                    <a href="#%e9%85%8d%e7%bd%aeyum%e6%ba%90" aria-label="配置yum源"><strong>配置yum源</strong></a></li>
+                <li>
+                    <a href="#%e5%ae%89%e8%a3%85%e5%b9%b6%e9%85%8d%e7%bd%aepackstack" aria-label="安装并配置packstack"><strong>安装并配置packstack</strong></a></li>
+                <li>
+                    <a href="#%e5%ae%89%e8%a3%85openstack" aria-label="安装openstack"><strong>安装openstack</strong></a>
+                </li>
+            </ul>
+            </ul>
+            </li>
+            </ul>
+        </div>
+    </details>
+</div>
+
+  <div class="post-content"><p>+++
+title = &lsquo;搭建OpenStack&rsquo;
+date = 2023-10-03T21:15:18+08:00
+draft = false
++++</p>
+<h1 id="环境搭建在线源安装">环境搭建（在线源安装）<a hidden class="anchor" aria-hidden="true" href="#环境搭建在线源安装">#</a></h1>
+<p>Openstack环境搭建有很多种方法：</p>
+<p>1.手工搭建，一个组件一个组件去安装。</p>
+<p>2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。</p>
+<p>3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。</p>
+<h1 id="1关闭防火墙selinux和networkmanager">1.关闭防火墙selinux和networkmanager<a hidden class="anchor" aria-hidden="true" href="#1关闭防火墙selinux和networkmanager">#</a></h1>
+<p>控制节点和计算节点都要做</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>[root@controller ~]# systemctl stop firewalld
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@controller ~]# systemctl disable firewalld
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@controller ~]# setenforce 0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@controller ~]# sed -i  &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@controller ~]# systemctl stop NetworkManager
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@controller ~]# systemctl disable NetworkManager
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@compute ~]# systemctl stop firewalld
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@compute ~]# systemctl disable firewalld
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@compute ~]# setenforce 0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@compute ~]# sed -i &#39;s/SELINUX=enforcing/SELINUX=disabled/g&#39; /etc/selinux/config
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@compute ~]# systemctl stop NetworkManager
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[root@compute ~]# systemctl disable NetworkManager
+</span></span></code></pre></div><h3 id="配置ip及主机名安装基础包"><strong>配置ip及主机名安装基础包</strong><a hidden class="anchor" aria-hidden="true" href="#配置ip及主机名安装基础包">#</a></h3>
+<p>控制节点和计算节点都要配置</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>[root@compute network-scripts]# cat ifcfg-ens160
+</span></span><span style="display:flex;"><span>TYPE=Ethernet
+</span></span><span style="display:flex;"><span>BOOTPROTO=none
+</span></span><span style="display:flex;"><span>NAME=ens160
+</span></span><span style="display:flex;"><span>DEVICE=ens160
+</span></span><span style="display:flex;"><span>ONBOOT=yes
+</span></span><span style="display:flex;"><span>IPADDR=192.168.230.139
+</span></span><span style="display:flex;"><span>NETMASK=255.255.255.0
+</span></span><span style="display:flex;"><span>GATEWAY=192.168.230.2
+</span></span><span style="display:flex;"><span>DNS1=192.168.230.2
+</span></span><span style="display:flex;"><span>[root@compute network-scripts]#
+</span></span></code></pre></div><p>配置域名解析</p>
+<ul>
+<li>在本地将域名指向自己想要解析的IP</li>
+<li>当我们访问域名的时候  默认第一步就会先看本地的hosts文件  没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的）</li>
+</ul>
+<p>[root@controller ~]# vi /etc/hosts</p>
+<p>添加下面两行</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>192.168.230.138 controller
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>192.168.230.139 compute
+</span></span></code></pre></div><p>发送给计算节点</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>scp  /etc/hosts  root@192.168.230.139:/etc/hosts
+</span></span></code></pre></div><h3 id="配置ntp时钟"><strong>配置ntp时钟</strong><a hidden class="anchor" aria-hidden="true" href="#配置ntp时钟">#</a></h3>
+<p>控制节点和计算节点都要配置</p>
+<p>yum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch</p>
+<p>[root@controller ~]# vim  /etc/chrony.conf</p>
+<p># pool 2.centos.pool.ntp.org iburst</p>
+<p>pool ntp.aliyun.com iburst</p>
+<p>[root@compute ~]# vim /etc/chrony.conf</p>
+<p># pool 2.centos.pool.ntp.org iburst</p>
+<p>pool ntp.aliyun.com iburst</p>
+<p>启动服务</p>
+<p>[root@controller ~]# systemctl start chronyd.service</p>
+<p>[root@controller ~]# systemctl enable chronyd.service</p>
+<p>[root@compute ~]# systemctl start chronyd.service</p>
+<p>[root@compute ~]# systemctl enable chronyd.service</p>
+<h3 id="配置yum源"><strong>配置yum源</strong><a hidden class="anchor" aria-hidden="true" href="#配置yum源">#</a></h3>
+<p>控制节点和计算节点都要配置</p>
+<p>[root@controller ~]# mkdir /etc/yum.repos.d/bak</p>
+<p>[root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/</p>
+<p>[root@controller ~]# ls /etc/yum.repos.d/</p>
+<p>bak</p>
+<p>[root@controller yum.repos.d]# cat cloudcs.repo</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>[highavailability]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - HighAvailability
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[nfv]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - NFV
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[rt]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - RT
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[resilientstorage]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - ResilientStorage
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[extras-common]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - Extras packages
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[extras]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream  - Extras
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=extras&amp;infra=
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>\#baseurl=http://mirror.centos.org///extras//os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[centos-ceph-pacific]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS - Ceph Pacific
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[centos-rabbitmq-38]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS-8 - RabbitMQ 38
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[centos-nfv-openvswitch]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - NFV OpenvSwitch
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>module_hotfixes=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[baseos]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - BaseOS
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[appstream]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - AppStream
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>repo_gpgcheck=0
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>metadata_expire=6h
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>countme=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[centos-openstack-victoria]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS 8 - OpenStack victoria
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>\#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>module_hotfixes=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>[powertools]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>name=CentOS Stream 8 - PowerTools
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>\#mirrorlist=http://mirrorlist.centos.org/?release=&amp;arch=&amp;repo=PowerTools&amp;infra=
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgcheck=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>enabled=1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+</span></span></code></pre></div><p>将控制节点的repo文件拷贝过来到计算节点</p>
+<p>[root@compute yum.repos.d]# mkdir bak</p>
+<p>[root@compute yum.repos.d]# mv *.repo bak/</p>
+<p>[root@compute yum.repos.d]# ls</p>
+<p>bak</p>
+<p>[root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo  .</p>
+<p>[root@compute yum.repos.d]# ls</p>
+<p>bak  cloudcs.repo</p>
+<p>[root@compute yum.repos.d]# yum clean all</p>
+<p>27 files removed</p>
+<p>[root@compute yum.repos.d]# yum repolist all</p>
+<h3 id="安装并配置packstack"><strong>安装并配置packstack</strong><a hidden class="anchor" aria-hidden="true" href="#安装并配置packstack">#</a></h3>
+<p>仅在控制节点上做。</p>
+<p>安装packstack工具</p>
+<p>[root@controller ~]# yum install -y openstack-packstack</p>
+<p>生成应答文件</p>
+<p>[root@controller ~]# packstack &ndash;help |grep ans</p>
+<p>&ndash;gen-answer-file=GEN_ANSWER_FILE</p>
+<p>​            Generate a template of an answer file.</p>
+<p>&ndash;validate-answer-file=VALIDATE_ANSWER_FILE</p>
+<p>​            Check if answerfile contains unexpected options.</p>
+<p>&ndash;answer-file=ANSWER_FILE</p>
+<p>​            answerfile will also be generated and should be used</p>
+<p>-o, &ndash;options     Print details on options available in answer file(rst</p>
+<p>​            Packstack a second time with the same answer file and</p>
+<p>​            attribute where &ldquo;y&rdquo; means an account is disabled.</p>
+<p>&ndash;manila-netapp-transport-type=MANILA_NETAPP_TRANSPORT_TYPE</p>
+<p>​            The transport protocol used when communicating with</p>
+<p>[root@controller ~]#</p>
+<p>[root@controller ~]#</p>
+<p>[root@controller ~]# packstack &ndash;gen-answer-file=memeda.txt</p>
+<p>[root@controller ~]# ls</p>
+<p>anaconda-ks.cfg  memeda.txt</p>
+<p>编辑应答文件</p>
+<p>[root@controller ~]# vim memeda.txt</p>
+<p>#修改以下参数内容</p>
+<p>CONFIG_COMPUTE_HOSTS=192.168.230.138,192.168.230.139</p>
+<p>CONFIG_KEYSTONE_ADMIN_PW=redhat</p>
+<p>CONFIG_PROVISION_DEMO=n</p>
+<p>CONFIG_HEAT_INSTALL=y</p>
+<p>CONFIG_NEUTRON_OVN_BRIDGE_IFACES=br-ex:ens160</p>
+<p><em><strong>*需要注意的是 br-ex 后面对应的物理网卡名称*</strong></em></p>
+<h3 id="安装openstack"><strong>安装openstack</strong><a hidden class="anchor" aria-hidden="true" href="#安装openstack">#</a></h3>
+<p>packstack &ndash;answer-file=memeda.txt（等大约十几分钟）</p>
+<p>admin</p>
+<p>密码</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Applying Puppet manifests                            [ DONE ]
+</span></span><span style="display:flex;"><span>Finalizing                                           [ DONE ]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> **** Installation completed successfully ******
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Additional information:
+</span></span><span style="display:flex;"><span> * Parameter CONFIG_NEUTRON_L2_AGENT: You have chosen OVN Neutron backend. Note that this backend does not support the VPNaaS plugin. Geneve will be used as the encapsulation method for tenant networks
+</span></span><span style="display:flex;"><span> * Time synchronization installation was skipped. Please note that unsynchronized time on server instances might be problem for some OpenStack components.
+</span></span><span style="display:flex;"><span> * File /root/keystonerc_admin has been created on OpenStack client host 192.168.230.138. To use the command line tools you need to source the file.
+</span></span><span style="display:flex;"><span> * To access the OpenStack Dashboard browse to http://192.168.230.138/dashboard .
+</span></span><span style="display:flex;"><span>Please, find your login credentials stored in the keystonerc_admin in your home directory.
+</span></span><span style="display:flex;"><span> * The installation log file is available at: /var/tmp/packstack/20231007-150224-_3m58aw_/openstack-setup.log
+</span></span><span style="display:flex;"><span> * The generated manifests are available at: /var/tmp/packstack/20231007-150224-_3m58aw_/manifests
+</span></span><span style="display:flex;"><span>[root@controller ~]#
+</span></span></code></pre></div>
+
+  </div>
+
+  <footer class="post-footer">
+    <ul class="post-tags">
+    </ul>
+<nav class="paginav">
+  <a class="prev" href="https://neverjia.github.io/posts/title_of_the_post/">
+    <span class="title">« Prev</span>
+    <br>
+    <span>云主机使用</span>
+  </a>
+  <a class="next" href="https://neverjia.github.io/posts/linux10.29/">
+    <span class="title">Next »</span>
+    <br>
+    <span>学习Linux</span>
+  </a>
+</nav>
+
+  </footer>
+</article>
+    </main>
+    
+<a href="#top" aria-label="go to top" title="Go to Top (Alt + G)" class="top-link" id="top-link" accesskey="g">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 6" fill="currentColor">
+        <path d="M12 6H0l6-6z" />
+    </svg>
+</a>
+
+<script>
+    let menu = document.getElementById('menu')
+    if (menu) {
+        menu.scrollLeft = localStorage.getItem("menu-scroll-position");
+        menu.onscroll = function () {
+            localStorage.setItem("menu-scroll-position", menu.scrollLeft);
+        }
+    }
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener("click", function (e) {
+            e.preventDefault();
+            var id = this.getAttribute("href").substr(1);
+            if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView({
+                    behavior: "smooth"
+                });
+            } else {
+                document.querySelector(`[id='${decodeURIComponent(id)}']`).scrollIntoView();
+            }
+            if (id === "top") {
+                history.replaceState(null, null, " ");
+            } else {
+                history.pushState(null, null, `#${id}`);
+            }
+        });
+    });
+
+</script>
+<script>
+    var mybutton = document.getElementById("top-link");
+    window.onscroll = function () {
+        if (document.body.scrollTop > 800 || document.documentElement.scrollTop > 800) {
+            mybutton.style.visibility = "visible";
+            mybutton.style.opacity = "1";
+        } else {
+            mybutton.style.visibility = "hidden";
+            mybutton.style.opacity = "0";
+        }
+    };
+
+</script>
+<script>
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        if (document.body.className.includes("dark")) {
+            document.body.classList.remove('dark');
+            localStorage.setItem("pref-theme", 'light');
+        } else {
+            document.body.classList.add('dark');
+            localStorage.setItem("pref-theme", 'dark');
+        }
+    })
+
+</script>
+<script>
+    document.querySelectorAll('pre > code').forEach((codeblock) => {
+        const container = codeblock.parentNode.parentNode;
+
+        const copybutton = document.createElement('button');
+        copybutton.classList.add('copy-code');
+        copybutton.innerHTML = 'copy';
+
+        function copyingDone() {
+            copybutton.innerHTML = 'copied!';
+            setTimeout(() => {
+                copybutton.innerHTML = 'copy';
+            }, 2000);
+        }
+
+        copybutton.addEventListener('click', (cb) => {
+            if ('clipboard' in navigator) {
+                navigator.clipboard.writeText(codeblock.textContent);
+                copyingDone();
+                return;
+            }
+
+            const range = document.createRange();
+            range.selectNodeContents(codeblock);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            try {
+                document.execCommand('copy');
+                copyingDone();
+            } catch (e) { };
+            selection.removeRange(range);
+        });
+
+        if (container.classList.contains("highlight")) {
+            container.appendChild(copybutton);
+        } else if (container.parentNode.firstChild == container) {
+            
+        } else if (codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.nodeName == "TABLE") {
+            
+            codeblock.parentNode.parentNode.parentNode.parentNode.parentNode.appendChild(copybutton);
+        } else {
+            
+            codeblock.parentNode.appendChild(copybutton);
+        }
+    });
+</script>
+</body>
+
+</html>

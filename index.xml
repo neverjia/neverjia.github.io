@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>MiJia&#39;s Blog</title>
+    <link>https://neverjia.github.io/</link>
+    <description>Recent content on MiJia&#39;s Blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-cn</language>
+    <lastBuildDate>Sun, 08 Oct 2023 09:17:06 +0800</lastBuildDate><atom:link href="https://neverjia.github.io/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>云主机使用</title>
+      <link>https://neverjia.github.io/posts/title_of_the_post/</link>
+      <pubDate>Sun, 08 Oct 2023 09:17:06 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/title_of_the_post/</guid>
+      <description>一、购买CentOS7.6操作系统，登录 二、开放安全组2222，修改端口2222在虚拟机里面配置 vi ssd_config cat ssd_config | grep port #vi /etc/ssh/sshd_config #service sshd restart 三、 为该云主机添加一块10G的硬盘，名为disk-姓名全拼，将其挂载到云主机的/mnt目录下，并将etc目录下以.conf结尾的文件拷贝到该目录下，为该磁盘创建一个名为disk-snap的快照，创建快照成功后，将/mnt目录下的内容删除，然后使用快照还原云硬盘的存储数据 挂载到/mnt 挂载-》分区-》格式化-》挂载-》卸载-》 ①分区，挂载 ②格式化，挂载到/mnt目录下 ③复制/etc/.conf下的文件到/mnt/目录下 ④拍快照 ⑤然后删除/mnt/下面的数据 ⑥卸载云磁盘 ⑦回滚数据 ⑧再将磁盘挂载 ⑨在命令行操作 #回滚数据以后，发现多了一个磁盘/dev/vdc1 [root@ecs-wuruan-mijia ~]# lsblk NAME MAJ:MIN RM SIZE RO TYPE MOUNTPOINT vda 253:0 0 40G 0 disk └─vda1 253:1 0 40G 0 part / vdc 253:32 0 10G 0 disk └─vdc1 253:33 0 10G 0 part #查看磁盘挂载情况 [root@ecs-wuruan-mijia ~]# df -hT /dev/vdb1 xfs 10G 33M 10G 1% /mnt #卸载原来的磁盘/dev/vdb1 [root@ecs-wuruan-mijia ~]# umount /dev/vdb1/ [root@ecs-wuruan-mijia ~]# df -hT Filesystem Type Size Used Avail Use% Mounted on devtmpfs devtmpfs 486M 0 486M 0% /dev tmpfs tmpfs 496M 0 496M 0% /dev/shm tmpfs tmpfs 496M 6.8M 489M 2% /run tmpfs tmpfs 496M 0 496M 0% /sys/fs/cgroup /dev/vda1 ext4 40G 2.1G 36G 6% / tmpfs tmpfs 100M 0 100M 0% /run/user/0 #挂载回滚以后的磁盘 [root@ecs-wuruan-mijia ~]# mount /dev/vdc1 /mnt [root@ecs-wuruan-mijia ~]# df -hT Filesystem Type Size Used Avail Use% Mounted on devtmpfs devtmpfs 486M 0 486M 0% /dev tmpfs tmpfs 496M 0 496M 0% /dev/shm tmpfs tmpfs 496M 6.8M 489M 2% /run tmpfs tmpfs 496M 0 496M 0% /sys/fs/cgroup /dev/vda1 ext4 40G 2.1G 36G 6% / tmpfs tmpfs 100M 0 100M 0% /run/user/0 /dev/vdc1 xfs 10G 33M 10G 1% /mnt [root@ecs-wuruan-mijia ~]# ls /mnt/ asound.conf libaudit.conf sestatus.conf chrony.conf libuser.conf sos.conf dracut.conf locale.conf sudo.conf e2fsck.conf logrotate.conf sudo-ldap.conf GeoIP.conf man_db.conf sysctl.conf host.conf mke2fs.conf vconsole.conf kdump.conf nsswitch.conf yum.conf krb5.conf resolv.conf ld.so.conf rsyslog.conf [root@ecs-wuruan-mijia ~]# 四、将云服务器的规格变更为2H2G后将系统重装为windows，Server2019；在磁盘管理中找到数据盘，并且将该盘格式化为ntfs 变更操作系统完成-》登录到Windows-》找到磁盘管理-》格式化为ntfs类型 五、 重置云服务器的系统密码为WuRuan12#$ 六、 删除以上购买的云服务器、云硬盘、快照、弹性公网IP diskmgmt.msc</description>
+    </item>
+    
+    <item>
+      <title>搭建OpenStack</title>
+      <link>https://neverjia.github.io/posts/title_of_the_post/</link>
+      <pubDate>Sun, 08 Oct 2023 09:17:06 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/title_of_the_post/</guid>
+      <description>+++ title = &amp;lsquo;搭建OpenStack&amp;rsquo; date = 2023-10-03T21:15:18+08:00 draft = false +++ 环境搭建（在线源安装） Openstack环境搭建有很多种方法： 1.手工搭建，一个组件一个组件去安装。 2.通过工具 packstack 生成一个应答文件，编写应答文件，packstack调用文件去安装openstack环境。 3.HCS huaweicloud stack deploy 工具，私有云部署工具，类似tripple O的方式 openstack on openstack，首先通过安装有个精简版的openstack（heat编排服务），通过该服务去一键式安装整个云环境。 1.关闭防火墙selinux和networkmanager 控制节点和计算节点都要做 [root@controller ~]# systemctl stop firewalld [root@controller ~]# systemctl disable firewalld [root@controller ~]# setenforce 0 [root@controller ~]# sed -i &amp;#39;s/SELINUX=enforcing/SELINUX=disabled/g&amp;#39; /etc/selinux/config [root@controller ~]# systemctl stop NetworkManager [root@controller ~]# systemctl disable NetworkManager [root@compute ~]# systemctl stop firewalld [root@compute ~]# systemctl disable firewalld [root@compute ~]# setenforce 0 [root@compute ~]# sed -i &amp;#39;s/SELINUX=enforcing/SELINUX=disabled/g&amp;#39; /etc/selinux/config [root@compute ~]# systemctl stop NetworkManager [root@compute ~]# systemctl disable NetworkManager 配置ip及主机名安装基础包 控制节点和计算节点都要配置 [root@compute network-scripts]# cat ifcfg-ens160 TYPE=Ethernet BOOTPROTO=none NAME=ens160 DEVICE=ens160 ONBOOT=yes IPADDR=192.168.230.139 NETMASK=255.255.255.0 GATEWAY=192.168.230.2 DNS1=192.168.230.2 [root@compute network-scripts]# 配置域名解析 在本地将域名指向自己想要解析的IP 当我们访问域名的时候 默认第一步就会先看本地的hosts文件 没有的话才会通过dns服务器获取解析（当然这个顺序是可以通过下面讲的host.conf改变的） [root@controller ~]# vi /etc/hosts 添加下面两行 192.168.230.138 controller 192.168.230.139 compute 发送给计算节点 scp /etc/hosts root@192.168.230.139:/etc/hosts 配置ntp时钟 控制节点和计算节点都要配置 yum install -y vim net-tools bash-completion chrony.x86_64 centos-release-openstack-victoria.noarch [root@controller ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst [root@compute ~]# vim /etc/chrony.conf # pool 2.centos.pool.ntp.org iburst pool ntp.aliyun.com iburst 启动服务 [root@controller ~]# systemctl start chronyd.service [root@controller ~]# systemctl enable chronyd.service [root@compute ~]# systemctl start chronyd.service [root@compute ~]# systemctl enable chronyd.service 配置yum源 控制节点和计算节点都要配置 [root@controller ~]# mkdir /etc/yum.repos.d/bak [root@controller ~]# mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/bak/ [root@controller ~]# ls /etc/yum.repos.d/ bak [root@controller yum.repos.d]# cat cloudcs.repo [highavailability] name=CentOS Stream 8 - HighAvailability baseurl=https://mirrors.aliyun.com/centos/8-stream/HighAvailability/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [nfv] name=CentOS Stream 8 - NFV baseurl=https://mirrors.aliyun.com/centos/8-stream/NFV/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [rt] name=CentOS Stream 8 - RT baseurl=https://mirrors.aliyun.com/centos/8-stream/RT/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [resilientstorage] name=CentOS Stream 8 - ResilientStorage baseurl=https://mirrors.aliyun.com/centos/8-stream/ResilientStorage/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras-common] name=CentOS Stream 8 - Extras packages baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/extras-common/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Extras-SHA512 gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [extras] name=CentOS Stream - Extras mirrorlist=http://mirrorlist.centos.org/?release=&amp;amp;arch=&amp;amp;repo=extras&amp;amp;infra= \#baseurl=http://mirror.centos.org///extras//os/ baseurl=https://mirrors.aliyun.com/centos/8-stream/extras/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial [centos-ceph-pacific] name=CentOS - Ceph Pacific baseurl=https://mirrors.aliyun.com/centos/8-stream/storage/x86_64/ceph-pacific/ gpgcheck=0 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage [centos-rabbitmq-38] name=CentOS-8 - RabbitMQ 38 baseurl=https://mirrors.aliyun.com/centos/8-stream/messaging/x86_64/rabbitmq-38/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Messaging [centos-nfv-openvswitch] name=CentOS Stream 8 - NFV OpenvSwitch baseurl=https://mirrors.aliyun.com/centos/8-stream/nfv/x86_64/openvswitch-2/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-NFV module_hotfixes=1 [baseos] name=CentOS Stream 8 - BaseOS baseurl=https://mirrors.aliyun.com/centos/8-stream/BaseOS/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [appstream] name=CentOS Stream 8 - AppStream baseurl=https://mirrors.aliyun.com/centos/8-stream/AppStream/x86_64/os/ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial gpgcheck=1 repo_gpgcheck=0 metadata_expire=6h countme=1 enabled=1 [centos-openstack-victoria] name=CentOS 8 - OpenStack victoria baseurl=https://mirrors.aliyun.com/centos/8-stream/cloud/x86_64/openstack-victoria/ \#baseurl=https://repo.huaweicloud.com/centos/8-stream/cloud/x86_64/openstack-yoga/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Cloud module_hotfixes=1 [powertools] name=CentOS Stream 8 - PowerTools \#mirrorlist=http://mirrorlist.centos.org/?release=&amp;amp;arch=&amp;amp;repo=PowerTools&amp;amp;infra= baseurl=https://mirrors.aliyun.com/centos/8-stream/PowerTools/x86_64/os/ gpgcheck=1 enabled=1 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial 将控制节点的repo文件拷贝过来到计算节点 [root@compute yum.repos.d]# mkdir bak [root@compute yum.repos.d]# mv *.repo bak/ [root@compute yum.repos.d]# ls bak [root@compute yum.repos.d]# scp controller:/etc/yum.repos.d/cloudcs.repo . [root@compute yum.repos.d]# ls bak</description>
+    </item>
+    
+    <item>
+      <title>学习Linux</title>
+      <link>https://neverjia.github.io/posts/linux10.29/</link>
+      <pubDate>Tue, 03 Oct 2023 21:15:18 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/linux10.29/</guid>
+      <description>学习Linux整体 1.建立整体的一个框架 2.会查询手册或者百度 3.学习的时候要知道know how再know why（知道怎么做再知道为什么） 4.计算机是一门做中学学科，一定是做的过程中学会的（实践重要） 5.适当地囫囵吞枣（不能理解某个知识点的时候继续 下一个） 6.Linux不是编程，重点是实际操作，各种指令一定要玩的溜 7.linux主要的发行版： Ubuntu(乌班图)、RedHat(红帽)、CentOS、Debain[蝶变]、Fedora、SuSE、OpenSUSE Linux内核网站The Linux Kernel Archives Linux主要指内核https://www.kernel.org、 关系Linux和Unix 下载vm Https://jingyan.baidu.com/article/ab0b56305f2882c15afa7dda.html 下载镜像 . Centos下载地址 CentOS-7-x86_64-DVD-1810.iso CentOS 7.6 DVD版4G(目前主流的生产环境) http://mirrors.163.com/centos/7.6.1810/isos/x86_64/CentOS-7-x86_64-DVD-1810.iso CentOS-8.1.1911-x86_64-dvd1.iso CentOS 8.1 DVD版8G(未来的主流.) Http://mirrors.163.com//centos/8.1.1911/isos/x86_64/ 生成随机加密密码 g:https://suijimimashengcheng.51240.com/ G：https://suijimimashengcheng.51240.com/ 建立共享，安装VMtools</description>
+    </item>
+    
+    <item>
+      <title>win2012</title>
+      <link>https://neverjia.github.io/posts/win2012%E9%85%8D%E7%BD%AE/</link>
+      <pubDate>Mon, 02 Oct 2023 21:15:18 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/win2012%E9%85%8D%E7%BD%AE/</guid>
+      <description>Windows server 2012搭建一台AD域控服务器+DNS+DHCP（做相关的配置）和安装一台win10操作系统，开机自动获取IP地址，并使用域控的账户进行登录 1.关闭本地DHCP获取和设置为仅主机模式 1）虚拟机仅主机vmnet1取消DHCP 2）安装win2012 3）关闭防火墙 4） win2012配置 2.关闭防火墙 网络和共享中心 3.设置IP地址 打开网络和共享中心→更改适配器→属性IPv4 5.更改2012的主机名，并重启 打开服务器管理器 6.部署AD+DNS+DHCP，没有的步骤都是默认下一步 安装组件成功 7.开始配置组件， 配置AD，安装以后会自动启动服务器 授权DHCP 配置DHCP 给DHCP新建作用域，设置地址池 AD里面创建两个用户 vadmin zhangsan 把win10加入到域控里面 在win10里面更改 win10 禁用启用</description>
+    </item>
+    
+    <item>
+      <title>信息管理系统的搭建</title>
+      <link>https://neverjia.github.io/posts/%E4%BF%A1%E6%81%AF%E7%AE%A1%E7%90%86/</link>
+      <pubDate>Mon, 02 Oct 2023 21:15:18 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/%E4%BF%A1%E6%81%AF%E7%AE%A1%E7%90%86/</guid>
+      <description>1.安装pymysql python manage.py pymysql python manage.py runserver 2.修改setting.py ①报错的原因 ②解决方案：修改password 如果忘记数据库密码，可以试试这样做 win+r 输入services.msc，找到mysql服务，先停止在启动 在cmd终端输入 where mysql cd \Program Files\MySQL\MySQL Server 5.7\bin mysql -uroot -p Enter password: #按空格下一步就进去了 修改密码 set password for root@localhost=password(&amp;#34;root&amp;#34;); 3.创建数据库 create database studentsystem 插入数据 INSERT INTO `studentsystem`.`student` (`id`, `stu_id`, `stu_name`, `stu_phone`, `stu_address`, `stu_faculty`, `stu_major`) VALUES (&amp;#39;1&amp;#39;, &amp;#39;97&amp;#39;, &amp;#39;萝卜&amp;#39;, &amp;#39;13001010202&amp;#39;, &amp;#39;湖北&amp;#39;, &amp;#39;计算机&amp;#39;, &amp;#39;pytho课程设计&amp;#39;); 4.兼容问题（注释部分） 错误代码 解决：找到此文件注释这两行D:\Python\Python37\Lib\site-packages\django\db\backends\mysql 5.需要做数据库迁移 错误： 解决是迁移数据库 python manage.py makemigrations python manage.py migrate python manage.py runserver</description>
+    </item>
+    
+    <item>
+      <title>硬件</title>
+      <link>https://neverjia.github.io/posts/%E7%A1%AC%E4%BB%B6/</link>
+      <pubDate>Mon, 02 Oct 2023 21:15:18 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/%E7%A1%AC%E4%BB%B6/</guid>
+      <description>共计6台服务器2288H V5，1台存储 OceanStor 5110 V5，2台万兆48口交换机，1台千兆口 超聚变FusionServer 2288H V5 服务器主机 2颗主频3.2G 8C | 32T | 4T |480G | raid10 | 550w 8C &amp;mdash;8核心处理器 2288H V5 12盘位 服务器主机 2颗 4215R 主频3.2G 8C 丨16G*2 丨4TSATA 丨480G SSD 丨raid10丨550W 1台存储 OceanStor 5110 V5 2台万兆48口交换机，1台千兆口 Controller：3台，2颗cpu，每颗cpu24核心/48线程，每台内存1TB，2块960G sata 接口的SSD，做raid1系统盘。4TB 普通SATA盘（FS主存盘），共计8块（32T），一块后置NVME SSD 3.2T（FS缓存）。 Compute：1台，2颗cpu，每颗cpu24核心/48线程，每台内存256G，2块480G sata接口的SSD，做raid1系统盘。 Network：2台，2颗cpu，每颗cpu24核心/48线程，每台内存512G，2块480G sata接口的SSD，做raid1系统盘。 OceanStor 5110 V5存储：15TB容量 XG0/0/1 表示10GE/万兆口 G/0/0/1 表示GE千兆口 第一位表示设备；第二位表示模块（板卡，盒式交换机）；第三位表示接口 八核心处理器是英特尔公司推出的新的处理器产品。英特尔公司服务器平台团队产品营销主管夏农·鲍林（Shannon Poulin）表示，该处理器针对四插槽（four-socket）服务器。每个物理核心均可同时运行两个线程，使得服务器上可提供64个虚拟处理核心。 在MCM上看到的8颗核心，其中4颗是真正的Power5芯片，另外4颗是三级缓存 固态硬盘（Solid State Disk或Solid State Drive，简称SSD），又称固态驱动器，是用固态电子存储芯片阵列制成的硬盘。 SATA（Serial ATA）硬盘，又称串口硬盘，是计算机机械硬盘的主流，已基本取代了传统的PATA硬盘。SATA的全称是Serial Advanced Technology Attachment，由Intel、AP</description>
+    </item>
+    
+    <item>
+      <title>计算机间的数据传输</title>
+      <link>https://neverjia.github.io/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E9%97%B4%E7%9A%84%E6%95%B0%E6%8D%AE%E4%BC%A0%E8%BE%93/</link>
+      <pubDate>Mon, 02 Oct 2023 21:15:18 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/%E8%AE%A1%E7%AE%97%E6%9C%BA%E9%97%B4%E7%9A%84%E6%95%B0%E6%8D%AE%E4%BC%A0%E8%BE%93/</guid>
+      <description>计算机间的数据传输 Window →Linux ①lrzsz yum -y install lrzsz rz sz helloworld.sh linux→Linux scp 1.txt root@192.168.1.201:/opt scp 源数据 目标数据 scp root@192.168.1.201:/test01 /opt scp root@192.168.1.201:test01 /opt mkdir -p a/b/c/d scp -r a root@192.168.1.201:/opt #拷贝文件夹 xftp #df -h # #du -h #查看磁盘占用情况 文件压缩 &amp;ndash;tar -zx（解压）v（过程）f（文件） #tar -zxvf apache-zookeeper-3.5.5-bin.tar.gz #解压文件 #143 tar -zcf apache.tar.gz apache-zookeeper-3.5.5-bin #压缩文件 tar -zxvf apache.tar.gz -C /opt #大C是 指定解压目录 -C &amp;ndash;zip和unzip 安装 #yum -y install zip unzip &amp;ndash;压缩 zip -r apache.zip apache-zookeeper-3.5.5-bin #将这个文件夹压缩为名字为 apache.zip ​ zip -r xxx.zip xxx &amp;ndash;解压 unzip xxx.zip 主机名称 DNS解析 网络相关命令 ip addr 可代替ifconfig ifconfig -bash: ifconfig: command not found ifconfig是net-tools中的一个命令，但是centos7中minima版并没有集成这个包 [root@note1 ~]# yum -y install net-tools ping：看IP能不能访问到 Telnet：看端口能不能访问到 curl:从远端获取数据 netstat（查看整个计算机端口的监控） 查看当前网络的状态 netstat -anp netstat -r netstat -anp | grep 80 curl：命令行访问某些网络的地址 -X 是访问方式 curl -XGET https://www.baidu.com #(可以访问) curl -XPOST https://www.baidu.com #(不可以访问) curl -XPOST https://www.baidu.com &amp;raquo; baidupage 加密算法 不可逆加密算法 对称加密算法 非对称加密算法 毫秒级别的效率 主节点：192.168.1.200 第二个节点是：192.168.1.201 生成秘钥 ssh-keygen -t rsa -P &amp;#39;&amp;#39; -f ~/.ssh/id_rsa -t 代表使用哪个算法 -P 正常生成 -f秘钥放在什么位置。~家目录 有个隐藏文件~/.ssh/id_ras 将公钥传递给对方 公钥传过去就放在这个目录下面 了 ~/.ssh/authorized_keys ssh-copy-id -i ~/.ssh/id_rsa.pub root@192.168.1.201 # 自己主机也需要拷贝一份秘钥 主机名与Host校验 保存秘钥连接过的信息known_hosts /root/.ssh/known_hosts ssh -v -o GSSAPIAuthentication=no root@192.168.1.201 vi +/GSSAPIAuthentication /etc/ssh/ssh_config 用户-组-权限 用户 组 权限 权限赋予 管道与重定向 查进程信息 #ps -ef | head /etc/profile | tail 8.1管道 8.2重定向 Linux的系统进程 当前进程编号 [root@node1 ~]# echo $$ 1898 [root@node1 ~]# cd /proc/1898 UID PID PPID C STIME TTY TIME CMD 当前所属用户的ID 进程编号 父进程编号 命令 9.1进程信息 9.2后台信息 ping www.baidu.com &amp;amp; [root@node1 ~]# ping www.baidu.com &amp;raquo; baidu &amp;amp; [1] 1982 [root@node1 ~]# tail -F baidu 64 bytes from 110.242.68.4 (110.242.68.4): icmp_seq=8 ttl=128 time=36.5 ms 64 bytes from 110.242.68.4 (110.242.68.4): icmp_seq=9 ttl=128 time=216 ms 9.3杀死进程 kill -9 端口号（尽量不要</description>
+    </item>
+    
+    <item>
+      <title>配置虚拟机</title>
+      <link>https://neverjia.github.io/posts/ntp%E7%9A%84%E6%93%8D%E4%BD%9C/</link>
+      <pubDate>Mon, 02 Oct 2023 21:15:18 +0800</pubDate>
+      
+      <guid>https://neverjia.github.io/posts/ntp%E7%9A%84%E6%93%8D%E4%BD%9C/</guid>
+      <description>ntp的操作 ip a vi /etc/ssh/sshd_config systemctl restart sshd vi /etc/hosts mount /dev/sr0 /mnt/ cd /etc/yum.repos.d/ vi dvd.repo yum clean all yum repolist yum -y install vim mount /dev/sr0 /mnt df -h ls /mnt yum -y install httpd systemctl start httpd systemctl enable httpd ls /mnt cd /var/www/html/ mkdir dvd ls /mnt/ umount /mnt mount /dev/sr0 dvd 配置开机自动挂载 vi /etc/fstab /dev/sr0 /var/www/html/dvd iso9660 defaults 0 0 检查配置是否准确： mount -a 或者 df -h 关闭防火墙 systemctl stop firewalld NetworkManager systemctl disable firewalld NetworkManager setenforce 0 vi /etc/selinux/config enforcing 改成 disabled controller的操作 cd /etc/yum.repos.d vi dvd.repo yum clean all yum repolist 配置OpenStack YUM源 在ntp操作 mkdir /soft ①上传07-RHEL7OSP-6.0-2015-02-23.2-x86_64到这个目录 /soft ②或者也可以在装ntp系统的时候添加一个CD/DVD 再挂载 cd /var/www/html/ ls mkdir openstack 挂载 mount /soft/07-RHEL7OSP-6.0-2015-02-23.2-x86_64.iso openstack 挂载openstack yum 源 vi /etc/fstab /dev/sr0 /var/www/html/dvd iso9660 defaults 0 0 /soft/07-RHEL7OSP-6.0-2015-02-23.2-x86_64.iso /var/www/html/openstack iso9660 defaults 0 0 controller的继续操作 yum -y install vim net-tools ifconfig命令有了 cd /etc/yum.repos.d/ http://192.168.2.111/dvd 192.168.2.111代表着/var/www/html/ 192.168.2.111代表着/var/www/html/dvd 192.168.2.111代表着/var/www/html/openstack vim dvd.repo [dvd] name=dvd baseurl=http://192.168.2.111/dvd enabled=1 gpgcheck=0 [RH7-RHOS-6.0] name=RH7-RHOS-6.0 baseurl=http://192.168.2.111/openstack/RH7-RHOS-6.0 enabled=1 gpgcheck=0 [RH7-RHOS-6.0-Installer] name=RH7-RHOS-6.0-Installer baseurl=http://192.168.2.111/openstack/RH7-RHOS-6.0-Installer enabled=1 gpgcheck=0 [RHEL7-Errata] name=RHEL7-Errata baseurl=http://192.168.2.111/openstack/RHEL7-Errata enabled=1 gpgcheck=0 [RHEL-7-RHSCL-1.2] name=RHEL-7-RHSCL-1.2 baseurl=http://192.168.2.111/openstack/RHEL-7-RHSCL-1.2 enabled=1 gpgcheck=0 验证openstack yum源是否配置正确 在controller节点进行远程访问 把这个controller节点的dvd.repo文件发送到其他节点 [root@controller yum.repos.d]# vim dvd.repo [root@controller yum.repos.d]# pwd /etc/yum.repos.d scp dvd.repo root@compute:/etc/yum.repos.d/ scp dvd.repo root@ntp:/etc/yum.repos.d/ 在compute、ntp验证 cat /etc/yum.repos.d/dvd.repo</description>
+    </item>
+    
+    <item>
+      <title>about</title>
+      <link>https://neverjia.github.io/about/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://neverjia.github.io/about/</guid>
+      <description></description>
+    </item>
+    
+    
+    
+  </channel>
+</rss>
