@@ -1,7 +1,5 @@
 ---
 
-\---
-
 title: "学习shell"
 
 slug: "学习shell"
@@ -12,7 +10,7 @@ created: "2025-05-26"
 
 tags: ["shell"]
 
-\---
+---
 
 ### 一、为什么要学习和使用shell？
 
