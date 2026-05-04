@@ -1,15 +1,9 @@
 ---
-
-title: "学习shell"
-
-slug: "学习shell"
-
-date: "2025-05-26"
-
-created: "2025-05-26"
-
+title: "shell基础"
+slug: "shell基础"
+date: "2025-05-14"
+created: "2025-05-14"
 tags: ["shell"]
-
 ---
 
 ### 一、为什么要学习和使用shell？
