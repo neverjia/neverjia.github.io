@@ -1,8 +1,8 @@
 ---
 title: "shell变量"
 slug: "shell变量"
-date: "2026-02-1"
-created: "2026-02-1"
+date: "2025-12-1"
+created: "2025-12-1"
 tags: ["shell"]
 ---
 
