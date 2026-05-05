@@ -1,16 +1,10 @@
-\---
-
+---
 title: "shell变量"
-
 slug: "shell变量"
-
 date: "2026-02-1"
-
 created: "2026-02-1"
-
 tags: ["shell"]
-
-\---
+---
 
 ## 一、Shell变量_系统预定义变量
 
